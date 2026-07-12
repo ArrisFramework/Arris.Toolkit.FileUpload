@@ -7,5 +7,6 @@
 phpunit.xml         export-ignore
 tests               export-ignore
 makefile            export-ignore
+demo                export-ignore
 
 

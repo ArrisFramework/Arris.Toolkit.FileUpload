@@ -1,10 +1,16 @@
 #!/usr/bin/make
 
+.PHONY: demo help test
+
+demo:
+	@php -S localhost:8080 -t demo/ demo/index.php
+
 help:
 	@perl -e '$(HELP_ACTION)' $(MAKEFILE_LIST)
 
 test:		##@test PHPUnit tests
 	@php ./vendor/bin/phpunit --bootstrap vendor/autoload.php --testdox tests
+
 
 # ------------------------------------------------
 # Add the following 'help' target to your makefile, add help text after each target name starting with '\#\#'
