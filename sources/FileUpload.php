@@ -2,7 +2,6 @@
 
 namespace Arris\Toolkit;
 
-use Exception;
 use InvalidArgumentException;
 
 class FileUpload
@@ -11,6 +10,7 @@ class FileUpload
         'targetPath',
         'allowedMimeTypes',
         'maxFileSize',
+        'minFileSize',
         'filenameGenerator',
         'throwExceptions',
         'validators'
@@ -20,11 +20,13 @@ class FileUpload
     private ?string $targetPath = null;
     private array $allowedMimeTypes = [];
     private ?int $maxFileSize = null;
+    private ?int $minFileSize = null;
     private array $customValidators = [];
     private mixed $filenameGenerator = null;
     private array $errors = [];
     private bool $throwExceptions = false;
     private ?int $fileIndex = null;
+    private bool $validated = false;
 
     // Поля для конфигурации по умолчанию
     private static ?FileUpload $instance = null;
@@ -162,6 +164,7 @@ class FileUpload
         $newInstance->file = $instance->extractFileFromArray($file, $index);
         $newInstance->fileIndex = $index;
         $newInstance->errors = [];
+        $newInstance->validated = false;
         return $newInstance;
     }
 
@@ -247,11 +250,24 @@ class FileUpload
             );
         }
 
+        // Полная валидация: MIME, размер, кастомные валидаторы
+        if (!$this->validate()) {
+            return new FileUploadResult(
+                isSuccess: false,
+                stage: FileUploadResult::STAGE_UPLOADED,
+                originalName: $this->file['name'] ?? null,
+                lastError: end($this->errors) ?: null,
+                errors: $this->errors
+            );
+        }
+
+        $this->validated = true;
+
         return new FileUploadResult(
             isSuccess: true,
             stage: FileUploadResult::STAGE_UPLOADED,
             originalName: $this->file['name'] ?? null,
-            mimeType: $this->file['type'] ?? null
+            mimeType: mime_content_type($this->file['tmp_name'])
         );
     }
 
@@ -365,7 +381,7 @@ class FileUpload
     public function process(): FileUploadResult
     {
         try {
-            if (!$this->validate()) {
+            if (!$this->validated && !$this->validate()) {
                 return $this->createFailureResult();
             }
 
@@ -452,7 +468,7 @@ class FileUpload
                 height: $height
             );
 
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->errors[] = 'Исключение: ' . $e->getMessage();
             if ($this->throwExceptions) {
                 throw new FileUploadException(
@@ -546,6 +562,7 @@ class FileUpload
         $newInstance->file = $this->extractFileFromArray($file, $index);
         $newInstance->fileIndex = $index;
         $newInstance->errors = [];
+        $newInstance->validated = false;
         return $newInstance;
     }
 

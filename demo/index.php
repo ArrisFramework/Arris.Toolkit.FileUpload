@@ -145,10 +145,14 @@ async function doUpload() {
       log('    [uploaded]    FileUploadResult dump:', 'dump');
       log(JSON.stringify(data.uploaded, null, 2).split('\\n').map(l=>'      '+l).join('\\n'), 'dump');
 
-      // Показываем process()
-      log('    [processed]   stage: ' + data.processed.stage, data.processed.isSuccess ? 'ok' : 'err');
-      log('    [processed]   FileUploadResult dump:', 'dump');
-      log(JSON.stringify(data.processed, null, 2).split('\\n').map(l=>'      '+l).join('\\n'), 'dump');
+      // Показываем process() (только если uploaded() прошёл успешно)
+      if (data.processed) {
+        log('    [processed]   stage: ' + data.processed.stage, data.processed.isSuccess ? 'ok' : 'err');
+        log('    [processed]   FileUploadResult dump:', 'dump');
+        log(JSON.stringify(data.processed, null, 2).split('\\n').map(l=>'      '+l).join('\\n'), 'dump');
+      } else {
+        log('    [processed]   пропущен (uploaded() вернул отказ)', 'warn');
+      }
 
       log('    Время ответа: ' + elapsed + 's', 'info');
 
@@ -181,10 +185,12 @@ function handleUpload(): void
 
     $uploadDir = __DIR__ . '/uploads';
 
+    // 'allowedMimeTypes' => [/*'image/jpeg',*/ 'image/png', 'image/gif', /*'image/webp',*/ 'text/plain', 'application/pdf'],
+
     // Конфигурация по умолчанию
     FileUpload::setDefaultConfig([
         'targetPath'       => $uploadDir . '/',
-        'allowedMimeTypes' => [/*'image/jpeg',*/ 'image/png', 'image/gif', /*'image/webp',*/ 'text/plain', 'application/pdf'],
+        'allowedMimeTypes' => ['image/png', 'image/gif', 'image/jpeg'],
         'maxFileSize'      => 10 * 1024 * 1024,
         'throwExceptions'  => false,
     ]);
