@@ -1,6 +1,5 @@
 {
     "name": "karelwintersky/arris.php-file-upload",
-    "version": "1.0",
     "description": "Powerful PHP8 file upload library with validation, conversion, and fluent interface",
     "type": "library",
     "keywords": ["file", "upload", "validation", "image", "conversion", "php8"],
