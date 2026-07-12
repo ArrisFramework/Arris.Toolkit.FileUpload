@@ -130,6 +130,7 @@ class FileUpload
             'targetPath'        =>  self::$defaultConfig['targetPath'] = rtrim($value, '/') . '/',
             'allowedMimeTypes'  =>  self::$defaultConfig['allowedMimeTypes'] = $value,
             'maxFileSize'       =>  self::$defaultConfig['maxFileSize'] = $value,
+            'minFileSize'       =>  self::$defaultConfig['minFileSize'] = $value,
             'filenameGenerator' =>  self::$defaultConfig['filenameGenerator'] = is_callable($value) ? $value : null,
             'throwExceptions'   =>  self::$defaultConfig['throwExceptions'] = (bool)$value,
             'validators'        =>  self::$defaultConfig['validators'] = is_array($value) ? $value : [],
@@ -180,6 +181,10 @@ class FileUpload
 
         if (isset($config['maxFileSize'])) {
             $this->setMaxFileSize($config['maxFileSize']);
+        }
+
+        if (isset($config['minFileSize'])) {
+            $this->setMinFileSize($config['minFileSize']);
         }
 
         if (isset($config['filenameGenerator']) && is_callable($config['filenameGenerator'])) {
@@ -292,6 +297,12 @@ class FileUpload
         return $this;
     }
 
+    public function setMinFileSize(int $bytes): self
+    {
+        $this->minFileSize = $bytes;
+        return $this;
+    }
+
     public function addValidator(callable $validator): self
     {
         $this->customValidators[] = $validator;
@@ -339,6 +350,11 @@ class FileUpload
         }
 
         $fileSize = $this->file['size'] ?? 0;
+        if ($this->minFileSize !== null && $fileSize < $this->minFileSize) {
+            $this->errors[] = 'Файл слишком маленький';
+            return false;
+        }
+
         if ($this->maxFileSize !== null && $fileSize > $this->maxFileSize) {
             $this->errors[] = 'Файл слишком большой';
             return false;
