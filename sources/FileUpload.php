@@ -206,32 +206,53 @@ class FileUpload
 
     /**
      * Alias
-     * @return array|false
+     * @return FileUploadResult
      */
-    public function is_uploaded():array|false
+    public function is_uploaded(): FileUploadResult
     {
         return $this->uploaded();
     }
 
     /**
      * Проверяет, был ли файл успешно загружен во временный каталог
-     * Возвращает false если файл не был загружен, или информацию о файле если был
+     * Возвращает FileUploadResult с stage='uploaded'
      */
-    public function uploaded(): array|false
+    public function uploaded(): FileUploadResult
     {
         if (empty($this->file)) {
-            return false;
+            return new FileUploadResult(
+                isSuccess: false,
+                stage: FileUploadResult::STAGE_UPLOADED,
+                errors: ['Файл не задан']
+            );
         }
 
         if (!isset($this->file['tmp_name']) || !is_uploaded_file($this->file['tmp_name'])) {
-            return false;
+            return new FileUploadResult(
+                isSuccess: false,
+                stage: FileUploadResult::STAGE_UPLOADED,
+                originalName: $this->file['name'] ?? null,
+                errors: ['Файл не был загружен']
+            );
         }
 
-        if (($this->file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            return false;
+        $error = $this->file['error'] ?? UPLOAD_ERR_NO_FILE;
+        if ($error !== UPLOAD_ERR_OK) {
+            return new FileUploadResult(
+                isSuccess: false,
+                stage: FileUploadResult::STAGE_UPLOADED,
+                originalName: $this->file['name'] ?? null,
+                lastError: $this->getUploadErrorMessage($error),
+                errors: [$this->getUploadErrorMessage($error)]
+            );
         }
 
-        return $this->file;
+        return new FileUploadResult(
+            isSuccess: true,
+            stage: FileUploadResult::STAGE_UPLOADED,
+            originalName: $this->file['name'] ?? null,
+            mimeType: $this->file['type'] ?? null
+        );
     }
 
     public function setTargetPath(string $path): self
@@ -320,6 +341,11 @@ class FileUpload
 
     private function handleUploadError(int $errorCode): void
     {
+        $this->errors[] = $this->getUploadErrorMessage($errorCode);
+    }
+
+    private function getUploadErrorMessage(int $errorCode): string
+    {
         $errorMessages = [
             UPLOAD_ERR_INI_SIZE => 'Размер файла превышает upload_max_filesize в php.ini',
             UPLOAD_ERR_FORM_SIZE => 'Размер файла превышает MAX_FILE_SIZE в форме',
@@ -330,7 +356,7 @@ class FileUpload
             UPLOAD_ERR_EXTENSION => 'Загрузка файла была остановлена расширением',
         ];
 
-        $this->errors[] = $errorMessages[$errorCode] ?? 'Неизвестная ошибка загрузки';
+        return $errorMessages[$errorCode] ?? 'Неизвестная ошибка загрузки';
     }
 
     /**
@@ -412,6 +438,7 @@ class FileUpload
 
             return new FileUploadResult(
                 isSuccess: true,
+                stage: FileUploadResult::STAGE_PROCESSED,
                 originalName: $this->file['name'],
                 savedName: $savedFilename,
                 path: $this->targetPath,
@@ -450,6 +477,7 @@ class FileUpload
 
         return new FileUploadResult(
             isSuccess: false,
+            stage: FileUploadResult::STAGE_PROCESSED,
             originalName: $this->file['name'] ?? null,
             lastError: end($this->errors) ?: null,
             errors: $this->errors

@@ -4,6 +4,7 @@ namespace Arris\Toolkit;
 
 /**
  * @property-read bool        $isSuccess     Успешность операции
+ * @property-read string|null $stage         Этап: 'uploaded' (проверка is_uploaded_file) или 'processed' (файл перемещён в storage)
  * @property-read string|null $originalName  Оригинальное имя файла
  * @property-read string|null $savedName     Имя файла в хранилище (сгенерированное на этапе process) — с расширением и точкой
  * @property-read string|null $path          Полный путь от корня ФС к каталогу с файлом (опция targetPath или метод setTargetPath())
@@ -19,8 +20,12 @@ namespace Arris\Toolkit;
  */
 class FileUploadResult
 {
+    const STAGE_UPLOADED  = 'uploaded';
+    const STAGE_PROCESSED = 'processed';
+
     /**
      * @param bool $isSuccess - успешность операции
+     * @param string|null   $stage          - этап: 'uploaded' (проверка is_uploaded_file) или 'processed' (файл перемещён в storage)
      * @param string|null   $originalName   - оригинальное имя файла
      * @param string|null   $savedName      - имя файла в хранилище (сгенерированное на этапе process) - с расширением и точкой
      * @param string|null   $path           - полный путь от корня ФС к каталогу с файлом (опция targetPath или метод setTargetPath())
@@ -36,6 +41,7 @@ class FileUploadResult
      */
     public function __construct(
         public readonly bool $isSuccess,
+        public readonly ?string $stage = null,
         public readonly ?string $originalName = null,
         public readonly ?string $savedName = null,
         public readonly ?string $path = null,
@@ -54,6 +60,7 @@ class FileUploadResult
     {
         $data = [
             'isSuccess' => $this->isSuccess,
+            'stage' => $this->stage,
             'originalName' => $this->originalName,
             'savedName' => $this->savedName,
             'fullPath' => $this->fullPath,
@@ -79,6 +86,7 @@ class FileUploadResult
     {
         return [
             'isSuccess' => $this->isSuccess,
+            'stage' => $this->stage,
             'originalName' => $this->originalName,
             'savedName' => $this->savedName,
             'fullPath' => $this->fullPath,
