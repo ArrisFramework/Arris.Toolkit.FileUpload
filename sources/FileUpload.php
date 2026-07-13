@@ -317,6 +317,7 @@ class FileUpload
             isSuccess: true,
             stage: FileUploadResult::STAGE_UPLOADED,
             originalName: $this->file['name'] ?? null,
+            size: $this->file['size'] ?? null,
             mimeType: mime_content_type($this->file['tmp_name'])
         );
     }
