@@ -29,7 +29,6 @@ class FileUpload
     private bool $validated = false;
 
     // Поля для конфигурации по умолчанию
-    private static ?FileUpload $instance = null;
     private static array $defaultConfig = [];
 
     /**
@@ -114,7 +113,6 @@ class FileUpload
         }
     }
 
-
     /**
      * Добавляет опцию к дефолтному конфигу
      *
@@ -138,29 +136,9 @@ class FileUpload
         };
     }
 
-    public static function getInstance(bool $really_new_instance = false): self
-    {
-        if (self::$instance === null) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
-
-    /**
-     * Создает экземпляр FileUpload из массива $_FILES
-     *
-     * @param array $file Массив файла из $_FILES
-     * @param int|null $index Индекс для множественных файлов
-     */
     public static function fromFile(array $file, ?int $index = null): self
     {
-        $instance = self::getInstance();
-        $newInstance = clone $instance;
-        $newInstance->file = $instance->extractFileFromArray($file, $index);
-        $newInstance->fileIndex = $index;
-        $newInstance->errorStack = [];
-        $newInstance->validated = false;
-        return $newInstance;
+        return new self($file, $index);
     }
 
     private function applyConfig(array $config): void

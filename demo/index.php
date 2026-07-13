@@ -200,8 +200,8 @@ function handleUpload(): void
     try {
         $uploader = FileUpload::fromFile($file)
             ->addValidator(function (array $file) {
-                if ($file['size'] < 300*1024) {
-                    return 'Файл слишком маленький (минимум 300KB)';
+                if ($file['size'] < 100*1024) {
+                    return 'Файл слишком маленький (минимум 100KB)';
                 }
                 return true;
             })
