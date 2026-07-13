@@ -183,19 +183,18 @@ function handleUpload(): void
         return;
     }
 
-    $uploadDir = __DIR__ . '/uploads';
-
     // 'allowedMimeTypes' => [/*'image/jpeg',*/ 'image/png', 'image/gif', /*'image/webp',*/ 'text/plain', 'application/pdf'],
 
     // Конфигурация по умолчанию
     FileUpload::setDefaultConfig([
-        'targetPath'       => $uploadDir . '/',
-        'allowedMimeTypes' => ['image/png', 'image/gif'/*, 'image/jpeg'*/],
-        'maxFileSize'      => 300 * 1024/* * 1024*/,
+        'targetPath'       => __DIR__ . '/uploads/',
+        'allowedMimeTypes' => ['image/png', 'image/gif', 'image/jpeg'],
+        'maxFileSize'      => 10 * 1024 * 1024, // 10мб
         'throwExceptions'  => false,
     ]);
 
     $file = $_FILES['file'];
+    $targetMime = !empty($_POST['target_mime']) ? $_POST['target_mime'] : null;
     $results = [];
 
     try {
@@ -205,15 +204,12 @@ function handleUpload(): void
                     return 'Файл слишком маленький (минимум 300KB)';
                 }
                 return true;
-            })->addValidator(function(array $file): bool|string {
-                // Проверка типа файла
-                $mimeType = mime_content_type($file['tmp_name']);
-                if (str_starts_with($mimeType, 'image/')) {
-                    return 'Файл является изображением';
-                }
-                return true;
             })
         ;
+
+        if ($targetMime !== null) {
+            $uploader->setTargetMimeType($targetMime);
+        }
 
     } catch (\Throwable $e) {
         echo json_encode(['error' => 'Не удалось создать FileUpload: ' . $e->getMessage(), 'trace' => $e->getTraceAsString()]);
@@ -234,6 +230,19 @@ function handleUpload(): void
         echo json_encode($results);
         return;
     }
+
+    $uploader->setFilenameGenerator(function (string $originalName, array $file) {
+        // $extension = MimeTypes::fromFile($originalName);
+        $info = pathinfo($originalName);
+        $extension = $info['extension'] ?? '';
+        if ($extension == 'jpeg') {
+            $extension = 'jpg';
+        }
+        $extension = strtolower($extension);
+        $uuid = uniqid(more_entropy: true);
+        $dt = date("Y_m_d_");
+        return $dt . '_' . $uuid . ($extension ? '.' . $extension : '');
+    });
 
     // ── Этап 2: process() — валидация + перемещение ──
     try {

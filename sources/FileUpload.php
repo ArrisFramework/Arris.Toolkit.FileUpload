@@ -373,6 +373,8 @@ class FileUpload
     {
         $this->errorStack = [];
 
+        // ── Прекондишины: fail-fast (нет файла → нечего проверять) ──
+
         if (empty($this->file)) {
             $this->pushError(FileUploadErrorCode::FILE_NOT_SET);
             return false;
@@ -389,35 +391,41 @@ class FileUpload
             return false;
         }
 
+        $valid = true;
+
+        // ── Встроенные валидаторы: collect-all ──
+
         if (!empty($this->allowedMimeTypes)) {
             $mimeType = mime_content_type($this->file['tmp_name']);
             if (!in_array($mimeType, $this->allowedMimeTypes, true)) {
                 $this->pushError(FileUploadErrorCode::INVALID_MIME_TYPE, ['mime_type' => $mimeType]);
-                return false;
+                $valid = false;
             }
         }
 
         $fileSize = $this->file['size'] ?? 0;
         if ($this->minFileSize !== null && $fileSize < $this->minFileSize) {
             $this->pushError(FileUploadErrorCode::FILE_TOO_SMALL);
-            return false;
+            $valid = false;
         }
 
         if ($this->maxFileSize !== null && $fileSize > $this->maxFileSize) {
             $this->pushError(FileUploadErrorCode::FILE_TOO_LARGE);
-            return false;
+            $valid = false;
         }
 
         foreach ($this->customValidators as $validator) {
             $result = $validator($this->file);
             if ($result !== true) {
-                $params = is_string($result) ? ['message' => $result] : ['message' => 'Ошибка валидации файла'];
+                $params = is_string($result)
+                    ? ['message' => $result]
+                    : ['message' => 'Ошибка валидации файла'];
                 $this->pushError(FileUploadErrorCode::VALIDATOR_FAILED, $params);
-                return false;
+                $valid = false;
             }
         }
 
-        return true;
+        return $valid;
     }
 
     // ─── Process ─────────────────────────────────────────────────────────
