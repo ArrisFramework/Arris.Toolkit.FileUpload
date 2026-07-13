@@ -1,6 +1,6 @@
 <?php
 
-namespace Arris\Toolkit;
+namespace Arris\Toolkit\FileUpload;
 
 enum FileUploadErrorCode: string
 {

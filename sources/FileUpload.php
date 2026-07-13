@@ -2,7 +2,9 @@
 
 namespace Arris\Toolkit;
 
-use Arris\Toolkit\Media\ImageConvertor;
+use Arris\Toolkit\FileUpload\FileUploadErrorCode;
+use Arris\Toolkit\FileUpload\FileUploadErrorMessages;
+use Arris\Toolkit\FileUpload\ImageConvertor;
 use InvalidArgumentException;
 
 class FileUpload
@@ -53,6 +55,8 @@ class FileUpload
     private int $targetImageQuality = 90;
 
     private bool $forceConversion = false;
+
+    private string $locale = 'ru';
 
     /**
      * @param array|null $file Массив файла из $_FILES или null
@@ -133,6 +137,7 @@ class FileUpload
             'validators'        =>  self::$defaultConfig['validators'] = is_array($value) ? $value : [],
             'targetMimeType'    =>  self::$defaultConfig['targetMimeType'] = $value,
             'targetImageQuality'=>  self::$defaultConfig['targetImageQuality'] = $value,
+            'locale'            =>  self::$defaultConfig['locale'] = $value,
             default => throw new InvalidArgumentException("Unknown option: {$name}")
         };
     }
@@ -183,6 +188,10 @@ class FileUpload
         if (isset($config['targetImageQuality'])) {
             $this->targetImageQuality = $config['targetImageQuality'];
         }
+
+        if (isset($config['locale'])) {
+            $this->locale = $config['locale'];
+        }
     }
 
     // ─── Error stack helpers ──────────────────────────────────────────────
@@ -200,6 +209,8 @@ class FileUpload
      */
     private function resolveErrors(): array
     {
+        FileUploadErrorMessages::setLocale($this->locale);
+
         return array_map(
             fn(array $entry) => FileUploadErrorMessages::resolve($entry['code'], $entry['params'] ?? []),
             $this->errorStack
@@ -350,6 +361,12 @@ class FileUpload
     public function throwExceptions(bool $throw = true): self
     {
         $this->throwExceptions = $throw;
+        return $this;
+    }
+
+    public function setLocale(string $locale): self
+    {
+        $this->locale = $locale;
         return $this;
     }
 

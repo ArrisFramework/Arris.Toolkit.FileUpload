@@ -1,6 +1,6 @@
 <?php
 
-namespace Arris\Toolkit\Media;
+namespace Arris\Toolkit\FileUpload;
 
 /**
  * Результат анализа медиафайла через ffprobe.

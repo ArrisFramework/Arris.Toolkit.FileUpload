@@ -1,6 +1,6 @@
 <?php
 
-namespace Arris\Toolkit\Media;
+namespace Arris\Toolkit\FileUpload;
 
 /**
  * Утилита для получения метаданных медиафайлов через ffprobe.

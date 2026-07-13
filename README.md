@@ -95,6 +95,7 @@ FileUpload::applyOption('targetPath', '/var/www/photos/');
 FileUpload::applyOption('targetMimeType', 'image/webp');
 FileUpload::applyOption('targetImageQuality', 85);
 FileUpload::applyOption('minFileSize', 1024);
+FileUpload::applyOption('locale', 'en');
 ```
 
 ### Fluent-конфигурация на инстансе
@@ -106,6 +107,7 @@ $upload = FileUpload::fromFile($_FILES['photo'], 0)
     ->setMaxFileSize(5 * 1024 * 1024)
     ->setMinFileSize(1024)
     ->setTargetMimeType('image/webp', 85)
+    ->setLocale('en')
     ->setFilenameGenerator(fn($name) => uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION));
 ```
 
@@ -243,8 +245,8 @@ $errors = $upload->getErrors();
 ### Кастомизация сообщений
 
 ```php
-use Arris\Toolkit\FileUploadErrorCode;
-use Arris\Toolkit\FileUploadErrorMessages;
+use Arris\Toolkit\FileUpload\FileUploadErrorCode;
+use Arris\Toolkit\FileUpload\FileUploadErrorMessages;
 
 // Одно сообщение
 FileUploadErrorMessages::setMessage(
@@ -262,6 +264,29 @@ FileUploadErrorMessages::setMessages([
 ```
 
 Параметры в шаблонах: `{mime_type}`, `{message}` — подставляются из params.
+
+### Локализация (i18n)
+
+Встроенные locales: `ru` (по умолчанию) и `en`.
+
+```php
+use Arris\Toolkit\FileUpload;
+
+// На инстансе
+$upload = FileUpload::fromFile($_FILES['file'])
+    ->setLocale('en');
+
+// Глобально через конфиг
+FileUpload::setDefaultConfig([
+    'locale' => 'en',
+]);
+
+// Или через applyOption
+FileUpload::applyOption('locale', 'en');
+
+// Принудительно для текущего результата
+$errors = $upload->setLocale('ru')->getErrors();
+```
 
 ### Обработка ошибок
 
@@ -353,6 +378,52 @@ $result->toArray();     // PHP массив
 | `validators` | `array` | Массив callable-валидаторов |
 | `targetMimeType` | `string` | Целевой MIME-тип для конверсии |
 | `targetImageQuality` | `int` | Качество конверсии (0-100) |
+| `locale` | `string` | Локаль для сообщений ошибок (`'ru'` или `'en'`) |
+
+## Вспомогательные классы
+
+Все вспомогательные классы находятся в неймспейсе `Arris\Toolkit\FileUpload\*`.
+
+### ImageConvertor
+
+Конвертирует изображения между форматами (GD). Fluent API:
+
+```php
+use Arris\Toolkit\FileUpload\ImageConvertor;
+
+ImageConvertor::from('/path/to/photo.jpg')
+    ->toWebP(quality: 85)
+    ->save('/path/to/output/');
+
+ImageConvertor::from('/path/to/photo.jpg')
+    ->toPng(compression: 9)
+    ->save('/path/to/output/');
+
+ImageConvertor::from('/path/to/photo.gif')
+    ->toPng(preserveAlpha: true)
+    ->save('/path/to/output/');
+```
+
+Поддерживаемые конверсии: JPEG, PNG, GIF, WebP, BMP → JPEG/PNG/GIF/WebP.
+
+### MediaProbe
+
+Обёртка над `ffprobe` для получения метаданных медиафайлов:
+
+```php
+use Arris\Toolkit\FileUpload\MediaProbe;
+
+$info = MediaProbe::probe('/path/to/video.mp4');
+
+echo $info->width;     // 1920
+echo $info->height;    // 1080
+echo $info->codec;     // "h264"
+echo $info->duration;  // 125.4
+echo $info->isVideo;   // true
+echo $info->isAudio;   // false
+```
+
+Возвращает `MediaProbeResult` (readonly value object) или `null` при ошибке.
 
 ## Лицензия
 
