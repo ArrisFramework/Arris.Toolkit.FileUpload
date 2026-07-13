@@ -2,7 +2,7 @@
     "name": "karelwintersky/arris.php-file-upload",
     "description": "Powerful PHP8 file upload library with validation, conversion, and fluent interface",
     "type": "library",
-    "keywords": ["file", "upload", "validation", "image", "conversion", "php8"],
+    "keywords": ["file", "upload", "validation", "image", "conversion"],
     "license": "MIT",
     "authors": [
         {
@@ -12,16 +12,11 @@
     ],
     "require": {
         "php": "^8.2",
-        "ext-fileinfo": "*"
-    },
-    "require-dev": {
-        "phpunit/phpunit": "^10.5",
+        "ext-fileinfo": "*",
         "ext-gd": "*"
     },
-    "suggest": {
-        "karelwintersky/arris.toolkit.mimetypes": "^1",
-        "ext-gd": "Required for image conversion functionality",
-        "ext-imagick": "Alternative image processing library"
+    "require-dev": {
+        "phpunit/phpunit": "^10.5"
     },
     "autoload": {
         "psr-4": {

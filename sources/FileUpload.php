@@ -2,6 +2,7 @@
 
 namespace Arris\Toolkit;
 
+use Arris\Toolkit\Media\ImageConvertor;
 use InvalidArgumentException;
 
 class FileUpload
@@ -291,12 +292,17 @@ class FileUpload
 
         $this->validated = true;
 
+        $mimeType = mime_content_type($this->file['tmp_name']);
+        [$width, $height] = $this->getImageDimensions($this->file['tmp_name'], $mimeType);
+
         return new FileUploadResult(
             isSuccess: true,
             stage: FileUploadResult::STAGE_UPLOADED,
             originalName: $this->file['name'] ?? null,
+            mimeType: $mimeType,
             size: $this->file['size'] ?? null,
-            mimeType: mime_content_type($this->file['tmp_name'])
+            width: $width,
+            height: $height
         );
     }
 
@@ -453,12 +459,10 @@ class FileUpload
                 if ($this->conversionCallback) {
                     $success = ($this->conversionCallback)($targetPath . '.tmp', $targetPath, $this->targetMimeType, $this->targetImageQuality);
                 } else {
-                    $success = ImageConvertor::convert(
-                        $targetPath . '.tmp',
-                        $targetPath,
-                        $this->targetMimeType,
-                        $this->targetImageQuality
-                    );
+                    $success = (new ImageConvertor($targetPath . '.tmp'))
+                        ->setTargetFormat($this->targetMimeType)
+                        ->setQuality($this->targetImageQuality)
+                        ->convert($targetPath);
                 }
 
                 @unlink($targetPath . '.tmp');
