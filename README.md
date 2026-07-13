@@ -37,7 +37,8 @@ if ($result->isSuccess) {
 
 ### 1. `uploaded()` — проверка первичной загрузки
 
-Проверяет `is_uploaded_file()` — попал ли файл на сервер через HTTP.
+Проверяет `is_uploaded_file()`, выполняет полную валидацию (MIME, размер, кастомные валидаторы).
+Возвращает `FileUploadResult` с stage=`uploaded`. На этапе `uploaded` уже доступны `size` и `mimeType`.
 
 ```php
 $upload = FileUpload::fromFile($_FILES['photo'], 0);
@@ -45,12 +46,15 @@ $upload = FileUpload::fromFile($_FILES['photo'], 0);
 $check = $upload->uploaded();
 
 if (!$check->isSuccess) {
-    // Файл не загружен — fast fail
-    echo $check->errors[0]; // "Файл не был загружен"
+    echo $check->errors[0];
+    echo $check->size; // размер файла доступен даже при ошибке
 }
 ```
 
-### 2. `process()` — валидация, конверсия, сохранение
+### 2. `process()` — конверсия, сохранение
+
+Если `uploaded()` уже вызван и прошёл успешно — `process()` **пропускает** валидацию (флаг `validated`).
+Если вызван напрямую — выполняет валидацию сам.
 
 ```php
 $result = $upload->process();
@@ -75,6 +79,7 @@ FileUpload::setDefaultConfig([
     'targetPath'        => '/var/www/uploads/',
     'allowedMimeTypes'  => ['image/jpeg', 'image/png', 'image/webp'],
     'maxFileSize'       => 10 * 1024 * 1024,
+    'minFileSize'       => 1024,
     'filenameGenerator' => function (string $originalName, array $file) {
         $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
         return date('Y_m_d_') . uniqid(more_entropy: true) . ".{$ext}";
@@ -89,6 +94,7 @@ FileUpload::setDefaultConfig([
 FileUpload::applyOption('targetPath', '/var/www/photos/');
 FileUpload::applyOption('targetMimeType', 'image/webp');
 FileUpload::applyOption('targetImageQuality', 85);
+FileUpload::applyOption('minFileSize', 1024);
 ```
 
 ### Fluent-конфигурация на инстансе
@@ -98,27 +104,29 @@ $upload = FileUpload::fromFile($_FILES['photo'], 0)
     ->setTargetPath('/var/www/uploads/')
     ->allowMimeTypes(['image/jpeg', 'image/png'])
     ->setMaxFileSize(5 * 1024 * 1024)
+    ->setMinFileSize(1024)
     ->setTargetMimeType('image/webp', 85)
     ->setFilenameGenerator(fn($name) => uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION));
 ```
 
-## Валидаторы
+## Валидация
 
-Вот это - внутренние валидаторы. 
+### Встроенные валидаторы
 
 ```php
->allowMimeTypes(['image/jpeg', 'image/png'])
-->setMaxFileSize(5 * 1024 * 1024)
-->setMinFileSize(5 * 1024 * 1024)
+$upload = FileUpload::fromFile($_FILES['photo'], 0)
+    ->allowMimeTypes(['image/jpeg', 'image/png'])
+    ->setMaxFileSize(5 * 1024 * 1024)
+    ->setMinFileSize(1024);
 ```
 
-Можно определить кастомные валидаторы - функции-коллбэки, которые принимают запись о файле и возвращают:
+### Кастомные валидаторы
 
-- `true` - валидация пройдена
-- `false` - валидация не пройдена, в массив ошибок запишем дефолтную строку ошибки "ошибка валидации файла"
-- строка - валидация не пройдена, в массив ошибок запишем указанную строку.
+Функции-коллбэки, которые принимают массив файла и возвращают:
 
-Валидаторы исполняются последовательно, сначала встроенные, потом кастомные. 
+- `true` — валидация пройдена
+- `false` — валидация не пройдена, в ошибки запишется дефолтное сообщение "Ошибка валидации файла"
+- строка — валидация не пройдена, в ошибки запишется указанная строка
 
 ```php
 $upload = FileUpload::fromFile($_FILES['document'], 0)
@@ -134,45 +142,53 @@ $upload = FileUpload::fromFile($_FILES['document'], 0)
             return 'Имя файла содержит недопустимые символы';
         }
         return true;
-    })
-    ->addValidator(function(array $file): bool|string {
-        // Проверка размера изображения (если это изображение)
-        $mimeType = mime_content_type($file['tmp_name']);
-        if (str_starts_with($mimeType, 'image/')) {
-            $imageInfo = getimagesize($file['tmp_name']);
-            if ($imageInfo[0] < 100 || $imageInfo[1] < 100) {
-                return 'Изображение слишком маленькое';
-            }
-        }
-        return true;
-    });;
+    });
+```
 
-$result = $upload->process();
+### Порядок и collect-all
+
+Валидация выполняется в следующем порядке:
+
+1. **Прекондишины** (fail-fast): файл не задан → не загружен через HTTP → PHP upload-ошибка
+2. **Встроенные валидаторы**: MIME-тип → минимальный размер → максимальный размер
+3. **Кастомные валидаторы**: все по порядку
+
+Встроенные и кастомные валидаторы работают в режиме **collect-all**: все проверки выполняются, все ошибки собираются. Пользователь видит **все** проблемы сразу, а не только первую попавшуюся.
+
+```php
+// Пример: файл слишком маленький + неверный MIME — обе ошибки в одном ответе
+FileUpload::applyOption('allowedMimeTypes', ['image/png']);
+FileUpload::applyOption('minFileSize', 300 * 1024);
+
+$result = $upload->uploaded();
+// $result->errors = ['Файл слишком маленький', 'Недопустимый тип файла: image/jpeg']
 ```
 
 ## Конверсия изображений
 
 Конвертирует изображение из одного формата в другой при перемещении в storage.
 
-Для этого нужно указать целевой mime-тип и качество.
-
-@todo: 3 параметр force, который заставляет применить конвертор даже если целевой mime-тип совпадает с исходным. 
+Для этого нужно указать целевой mime-тип и качество. Третий параметр `$force` заставляет применить конвертер даже если целевой mime-тип совпадает с исходным — это позволяет приводить загруженные фотографии к общему стандарту (пережатие).
 
 ```php
 $upload = FileUpload::fromFile($_FILES['photo'], 0)
     ->setTargetPath('/var/www/images/')
     ->allowMimeTypes(['image/jpeg', 'image/png'])
-    ->setTargetMimeType('image/webp', 85); // формат + качество
+    ->setTargetMimeType('image/webp', 85);
 
 $result = $upload->process();
 
 if ($result->isSuccess) {
-    // Исходное: photo.png → Сохранённое: <radix>.webp
     echo $result->extension; // "webp"
 }
 ```
 
-Поддерживаемые форматы: JPEG, PNG, GIF, WebP, BMP.
+### Принудительная конвертация (`$force`)
+
+```php
+// JPEG → JPEG, но с пережатием до качества 75
+$upload->setTargetMimeType('image/jpeg', 75, true);
+```
 
 ### Кастомный конвертер
 
@@ -183,14 +199,73 @@ FileUpload::applyOption('conversionCallback', function (
     string $targetMime,
     int $quality
 ): bool {
-    // Своя логика конвертации
     return copy($sourcePath, $targetPath);
 });
 ```
 
-## Обработка ошибок
+### Поддерживаемые форматы
 
-### Тихий режим (по умолчанию)
+| Формат | Источник | Цель |
+|--------|----------|------|
+| JPEG   | yes      | yes  |
+| PNG    | yes      | yes  |
+| GIF    | yes      | yes  |
+| WebP   | yes      | yes  |
+| BMP    | yes      | —    |
+
+## Система ошибок
+
+### Коды ошибок
+
+Каждая ошибка имеет код `FileUploadErrorCode` (backed enum). Доступны через `getErrorStack()`:
+
+```php
+$stack = $upload->getErrorStack();
+// [
+//     ['code' => FileUploadErrorCode::FILE_TOO_LARGE, 'params' => []],
+//     ['code' => FileUploadErrorCode::VALIDATOR_FAILED, 'params' => ['message' => 'Файл повреждён']],
+// ]
+
+foreach ($stack as $entry) {
+    echo $entry['code']->value; // 'file_too_large'
+}
+```
+
+### Трансляция сообщений
+
+`getErrors()` возвращает массив человекочитаемых строк (через `FileUploadErrorMessages`):
+
+```php
+$errors = $upload->getErrors();
+// ['Файл слишком большой', 'Файл повреждён']
+```
+
+### Кастомизация сообщений
+
+```php
+use Arris\Toolkit\FileUploadErrorCode;
+use Arris\Toolkit\FileUploadErrorMessages;
+
+// Одно сообщение
+FileUploadErrorMessages::setMessage(
+    FileUploadErrorCode::FILE_TOO_LARGE,
+    'Максимум 10 МБ!'
+);
+
+// Пакетная замена (удобно для i18n)
+FileUploadErrorMessages::setMessages([
+    'file_too_large'  => 'Maximum 10 MB',
+    'file_too_small'  => 'Minimum 1 KB',
+    'invalid_mime_type' => 'Unsupported file type: {mime_type}',
+    'validator_failed'  => '{message}',
+]);
+```
+
+Параметры в шаблонах: `{mime_type}`, `{message}` — подставляются из params.
+
+### Обработка ошибок
+
+#### Тихий режим (по умолчанию)
 
 ```php
 $result = $upload->process();
@@ -201,7 +276,7 @@ if (!$result->isSuccess) {
 }
 ```
 
-### Режим исключений
+#### Режим исключений
 
 ```php
 use Arris\Toolkit\FileUploadException;
@@ -271,7 +346,8 @@ $result->toArray();     // PHP массив
 |-------|-----|----------|
 | `targetPath` | `string` | Каталог для сохранения |
 | `allowedMimeTypes` | `array` | Разрешённые MIME-типы |
-| `maxFileSize` | `int` | Максимальный размер (байты), 0 = без ограничений |
+| `maxFileSize` | `int` | Максимальный размер (байты) |
+| `minFileSize` | `int` | Минимальный размер (байты) |
 | `filenameGenerator` | `callable` | Генератор имени файла `fn(string $name, array $file): string` |
 | `throwExceptions` | `bool` | Бросать `FileUploadException` вместо возврата ошибки |
 | `validators` | `array` | Массив callable-валидаторов |
