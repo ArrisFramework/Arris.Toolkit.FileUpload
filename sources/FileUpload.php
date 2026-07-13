@@ -23,7 +23,7 @@ class FileUpload
     private ?int $minFileSize = null;
     private array $customValidators = [];
     private mixed $filenameGenerator = null;
-    private array $errors = [];
+    private array $errorStack = [];
     private bool $throwExceptions = false;
     private ?int $fileIndex = null;
     private bool $validated = false;
@@ -43,7 +43,6 @@ class FileUpload
      * @var string|null
      */
     private ?string $targetMimeType = null;
-
 
     /**
      * Целевой compression quality
@@ -109,8 +108,6 @@ class FileUpload
      */
     public static function setDefaultConfig(array $config): void
     {
-        // self::$defaultConfig = $config;
-        // а исключение кинет applyOption() если опции нет
         foreach ($config as $key => $value) {
             self::applyOption($key, $value);
         }
@@ -142,10 +139,6 @@ class FileUpload
 
     public static function getInstance(bool $really_new_instance = false): self
     {
-        /*if ($really_new_instance) {
-            return new self();
-        }*/
-
         if (self::$instance === null) {
             self::$instance = new self();
         }
@@ -164,7 +157,7 @@ class FileUpload
         $newInstance = clone $instance;
         $newInstance->file = $instance->extractFileFromArray($file, $index);
         $newInstance->fileIndex = $index;
-        $newInstance->errors = [];
+        $newInstance->errorStack = [];
         $newInstance->validated = false;
         return $newInstance;
     }
@@ -212,6 +205,46 @@ class FileUpload
         }
     }
 
+    // ─── Error stack helpers ──────────────────────────────────────────────
+
+    /**
+     * Добавляет ошибку в стек (хранение по кодам).
+     */
+    private function pushError(FileUploadErrorCode $code, array $params = []): void
+    {
+        $this->errorStack[] = ['code' => $code, 'params' => $params];
+    }
+
+    /**
+     * Резолвит стек ошибок в массив человекочитаемых строк.
+     */
+    private function resolveErrors(): array
+    {
+        return array_map(
+            fn(array $entry) => FileUploadErrorMessages::resolve($entry['code'], $entry['params'] ?? []),
+            $this->errorStack
+        );
+    }
+
+    /**
+     * Маппит PHP UPLOAD_ERR_* код в FileUploadErrorCode.
+     */
+    private static function mapUploadErrorCode(int $errorCode): FileUploadErrorCode
+    {
+        return match($errorCode) {
+            UPLOAD_ERR_INI_SIZE  => FileUploadErrorCode::UPLOAD_ERR_INI_SIZE,
+            UPLOAD_ERR_FORM_SIZE => FileUploadErrorCode::UPLOAD_ERR_FORM_SIZE,
+            UPLOAD_ERR_PARTIAL   => FileUploadErrorCode::UPLOAD_ERR_PARTIAL,
+            UPLOAD_ERR_NO_FILE   => FileUploadErrorCode::UPLOAD_ERR_NO_FILE,
+            UPLOAD_ERR_NO_TMP_DIR => FileUploadErrorCode::UPLOAD_ERR_NO_TMP_DIR,
+            UPLOAD_ERR_CANT_WRITE => FileUploadErrorCode::UPLOAD_ERR_CANT_WRITE,
+            UPLOAD_ERR_EXTENSION => FileUploadErrorCode::UPLOAD_ERR_EXTENSION,
+            default              => FileUploadErrorCode::NOT_UPLOADED,
+        };
+    }
+
+    // ─── Upload stages ───────────────────────────────────────────────────
+
     /**
      * Alias
      * @return FileUploadResult
@@ -222,47 +255,58 @@ class FileUpload
     }
 
     /**
-     * Проверяет, был ли файл успешно загружен во временный каталог
-     * Возвращает FileUploadResult с stage='uploaded'
+     * Проверяет, был ли файл успешно загружен во временный каталог.
+     * Выполняет полную валидацию: MIME, размер, кастомные валидаторы.
+     * Возвращает FileUploadResult с stage='uploaded'.
      */
     public function uploaded(): FileUploadResult
     {
+        $this->errorStack = [];
+
         if (empty($this->file)) {
+            $this->pushError(FileUploadErrorCode::FILE_NOT_SET);
+            $resolved = $this->resolveErrors();
             return new FileUploadResult(
                 isSuccess: false,
                 stage: FileUploadResult::STAGE_UPLOADED,
-                errors: ['Файл не задан']
+                errors: $resolved
             );
         }
 
         if (!isset($this->file['tmp_name']) || !is_uploaded_file($this->file['tmp_name'])) {
+            $this->pushError(FileUploadErrorCode::NOT_UPLOADED);
+            $resolved = $this->resolveErrors();
             return new FileUploadResult(
                 isSuccess: false,
                 stage: FileUploadResult::STAGE_UPLOADED,
                 originalName: $this->file['name'] ?? null,
-                errors: ['Файл не был загружен']
+                errors: $resolved
             );
         }
 
         $error = $this->file['error'] ?? UPLOAD_ERR_NO_FILE;
         if ($error !== UPLOAD_ERR_OK) {
+            $code = self::mapUploadErrorCode($error);
+            $this->pushError($code);
+            $resolved = $this->resolveErrors();
             return new FileUploadResult(
                 isSuccess: false,
                 stage: FileUploadResult::STAGE_UPLOADED,
                 originalName: $this->file['name'] ?? null,
-                lastError: $this->getUploadErrorMessage($error),
-                errors: [$this->getUploadErrorMessage($error)]
+                lastError: end($resolved),
+                errors: $resolved
             );
         }
 
         // Полная валидация: MIME, размер, кастомные валидаторы
         if (!$this->validate()) {
+            $resolved = $this->resolveErrors();
             return new FileUploadResult(
                 isSuccess: false,
                 stage: FileUploadResult::STAGE_UPLOADED,
                 originalName: $this->file['name'] ?? null,
-                lastError: end($this->errors) ?: null,
-                errors: $this->errors
+                lastError: end($resolved) ?: null,
+                errors: $resolved
             );
         }
 
@@ -275,6 +319,8 @@ class FileUpload
             mimeType: mime_content_type($this->file['tmp_name'])
         );
     }
+
+    // ─── Fluent setters ──────────────────────────────────────────────────
 
     public function setTargetPath(string $path): self
     {
@@ -321,49 +367,52 @@ class FileUpload
         return $this;
     }
 
+    // ─── Validation ──────────────────────────────────────────────────────
+
     public function validate(): bool
     {
-        $this->errors = [];
+        $this->errorStack = [];
 
         if (empty($this->file)) {
-            $this->errors[] = 'Файл не задан';
+            $this->pushError(FileUploadErrorCode::FILE_NOT_SET);
             return false;
         }
 
         if (!isset($this->file['tmp_name']) || !is_uploaded_file($this->file['tmp_name'])) {
-            $this->errors[] = 'Файл не был загружен';
+            $this->pushError(FileUploadErrorCode::NOT_UPLOADED);
             return false;
         }
 
         $error = $this->file['error'] ?? UPLOAD_ERR_NO_FILE;
         if ($error !== UPLOAD_ERR_OK) {
-            $this->handleUploadError($error);
+            $this->pushError(self::mapUploadErrorCode($error));
             return false;
         }
 
         if (!empty($this->allowedMimeTypes)) {
             $mimeType = mime_content_type($this->file['tmp_name']);
             if (!in_array($mimeType, $this->allowedMimeTypes, true)) {
-                $this->errors[] = "Недопустимый тип файла: {$mimeType}";
+                $this->pushError(FileUploadErrorCode::INVALID_MIME_TYPE, ['mime_type' => $mimeType]);
                 return false;
             }
         }
 
         $fileSize = $this->file['size'] ?? 0;
         if ($this->minFileSize !== null && $fileSize < $this->minFileSize) {
-            $this->errors[] = 'Файл слишком маленький';
+            $this->pushError(FileUploadErrorCode::FILE_TOO_SMALL);
             return false;
         }
 
         if ($this->maxFileSize !== null && $fileSize > $this->maxFileSize) {
-            $this->errors[] = 'Файл слишком большой';
+            $this->pushError(FileUploadErrorCode::FILE_TOO_LARGE);
             return false;
         }
 
         foreach ($this->customValidators as $validator) {
             $result = $validator($this->file);
             if ($result !== true) {
-                $this->errors[] = is_string($result) ? $result : 'Ошибка валидации файла';
+                $params = is_string($result) ? ['message' => $result] : ['message' => 'Ошибка валидации файла'];
+                $this->pushError(FileUploadErrorCode::VALIDATOR_FAILED, $params);
                 return false;
             }
         }
@@ -371,25 +420,7 @@ class FileUpload
         return true;
     }
 
-    private function handleUploadError(int $errorCode): void
-    {
-        $this->errors[] = $this->getUploadErrorMessage($errorCode);
-    }
-
-    private function getUploadErrorMessage(int $errorCode): string
-    {
-        $errorMessages = [
-            UPLOAD_ERR_INI_SIZE => 'Размер файла превышает upload_max_filesize в php.ini',
-            UPLOAD_ERR_FORM_SIZE => 'Размер файла превышает MAX_FILE_SIZE в форме',
-            UPLOAD_ERR_PARTIAL => 'Файл был загружен только частично',
-            UPLOAD_ERR_NO_FILE => 'Файл не был загружен',
-            UPLOAD_ERR_NO_TMP_DIR => 'Отсутствует временная директория',
-            UPLOAD_ERR_CANT_WRITE => 'Не удалось записать файл на диск',
-            UPLOAD_ERR_EXTENSION => 'Загрузка файла была остановлена расширением',
-        ];
-
-        return $errorMessages[$errorCode] ?? 'Неизвестная ошибка загрузки';
-    }
+    // ─── Process ─────────────────────────────────────────────────────────
 
     /**
      * @throws FileUploadException
@@ -402,13 +433,13 @@ class FileUpload
             }
 
             if ($this->targetPath === null) {
-                $this->errors[] = 'Не указан путь для сохранения файла';
+                $this->pushError(FileUploadErrorCode::TARGET_PATH_NOT_SET);
                 return $this->createFailureResult();
             }
 
             if (!is_dir($this->targetPath)) {
                 if (!mkdir($this->targetPath, 0755, true)) {
-                    $this->errors[] = 'Не удалось создать директорию для сохранения файла';
+                    $this->pushError(FileUploadErrorCode::TARGET_DIR_CREATE_FAILED);
                     return $this->createFailureResult();
                 }
             }
@@ -427,7 +458,7 @@ class FileUpload
                 $targetPath = $this->targetPath . $this->changeExtension($savedFilename, $this->targetMimeType);
 
                 if (!move_uploaded_file($this->file['tmp_name'], $targetPath . '.tmp')) {
-                    $this->errors[] = 'Не удалось переместить загруженный файл';
+                    $this->pushError(FileUploadErrorCode::FILE_MOVE_FAILED);
                     return $this->createFailureResult();
                 }
 
@@ -445,7 +476,7 @@ class FileUpload
                 @unlink($targetPath . '.tmp');
 
                 if (!$success) {
-                    $this->errors[] = 'Не удалось конвертировать файл (коллбэк)';
+                    $this->pushError(FileUploadErrorCode::CONVERSION_FAILED);
                     return $this->createFailureResult();
                 }
 
@@ -456,7 +487,7 @@ class FileUpload
                 // Обычное перемещение без конвертации
                 $finalPath = $this->targetPath . $savedFilename;
                 if (!move_uploaded_file($this->file['tmp_name'], $finalPath)) {
-                    $this->errors[] = 'Не удалось переместить загруженный файл';
+                    $this->pushError(FileUploadErrorCode::FILE_MOVE_FAILED);
                     return $this->createFailureResult();
                 }
                 $finalMimeType = $sourceMimeType;
@@ -485,11 +516,11 @@ class FileUpload
             );
 
         } catch (\Throwable $e) {
-            $this->errors[] = 'Исключение: ' . $e->getMessage();
+            $this->pushError(FileUploadErrorCode::EXCEPTION, ['message' => $e->getMessage()]);
             if ($this->throwExceptions) {
                 throw new FileUploadException(
-                    'Ошибка при загрузке файла: ' . $e->getMessage(),
-                    $this->errors,
+                    FileUploadErrorMessages::resolve(FileUploadErrorCode::EXCEPTION, ['message' => $e->getMessage()]),
+                    $this->resolveErrors(),
                     0,
                     $e
                 );
@@ -498,12 +529,73 @@ class FileUpload
         }
     }
 
+    // ─── Accessors ───────────────────────────────────────────────────────
+
+    /**
+     * Возвращает ошибки в виде человекочитаемых строк (через транслятор).
+     */
+    public function getErrors(): array
+    {
+        return $this->resolveErrors();
+    }
+
+    /**
+     * Возвращает сырой стек ошибок (коды + параметры).
+     *
+     * @return array<array{code: FileUploadErrorCode, params: array}>
+     */
+    public function getErrorStack(): array
+    {
+        return $this->errorStack;
+    }
+
+    public function getFile(): array
+    {
+        return $this->file;
+    }
+
+    public function getFileIndex(): ?int
+    {
+        return $this->fileIndex;
+    }
+
+    /**
+     * Создает новый экземпляр с другим файлом
+     */
+    public function withFile(array $file, ?int $index = null): self
+    {
+        $newInstance = clone $this;
+        $newInstance->file = $this->extractFileFromArray($file, $index);
+        $newInstance->fileIndex = $index;
+        $newInstance->errorStack = [];
+        $newInstance->validated = false;
+        return $newInstance;
+    }
+
+    /**
+     * Устанавливает целевой MIME-тип для конверсии
+     *
+     * @param string $mimeType
+     * @param int $compression_quality
+     * @return $this
+     */
+    public function setTargetMimeType(string $mimeType, int $compression_quality = 90): self
+    {
+        $this->targetMimeType = $mimeType;
+        $this->targetImageQuality = max(0, min($compression_quality, 100));
+        return $this;
+    }
+
+    // ─── Private helpers ─────────────────────────────────────────────────
+
     private function createFailureResult(): FileUploadResult
     {
+        $resolved = $this->resolveErrors();
+
         if ($this->throwExceptions) {
             throw new FileUploadException(
-                $this->errors[0] ?? 'Ошибка загрузки файла',
-                $this->errors
+                $resolved[0] ?? 'Ошибка загрузки файла',
+                $resolved
             );
         }
 
@@ -511,8 +603,8 @@ class FileUpload
             isSuccess: false,
             stage: FileUploadResult::STAGE_PROCESSED,
             originalName: $this->file['name'] ?? null,
-            lastError: end($this->errors) ?: null,
-            errors: $this->errors
+            lastError: end($resolved) ?: null,
+            errors: $resolved
         );
     }
 
@@ -552,48 +644,6 @@ class FileUpload
             }
         }
         return [null, null];
-    }
-
-    public function getErrors(): array
-    {
-        return $this->errors;
-    }
-
-    public function getFile(): array
-    {
-        return $this->file;
-    }
-
-    public function getFileIndex(): ?int
-    {
-        return $this->fileIndex;
-    }
-
-    /**
-     * Создает новый экземпляр с другим файлом
-     */
-    public function withFile(array $file, ?int $index = null): self
-    {
-        $newInstance = clone $this;
-        $newInstance->file = $this->extractFileFromArray($file, $index);
-        $newInstance->fileIndex = $index;
-        $newInstance->errors = [];
-        $newInstance->validated = false;
-        return $newInstance;
-    }
-
-    /**
-     * Устанавливает целевой MIME-тип для конверсии
-     *
-     * @param string $mimeType
-     * @param int $compression_quality
-     * @return $this
-     */
-    public function setTargetMimeType(string $mimeType, int $compression_quality = 90): self
-    {
-        $this->targetMimeType = $mimeType;
-        $this->targetImageQuality = max(0, min($compression_quality, 100));
-        return $this;
     }
 
     /**

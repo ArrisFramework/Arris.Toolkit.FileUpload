@@ -190,8 +190,8 @@ function handleUpload(): void
     // Конфигурация по умолчанию
     FileUpload::setDefaultConfig([
         'targetPath'       => $uploadDir . '/',
-        'allowedMimeTypes' => ['image/png', 'image/gif', 'image/jpeg'],
-        'maxFileSize'      => 10 * 1024 * 1024,
+        'allowedMimeTypes' => ['image/png', 'image/gif'/*, 'image/jpeg'*/],
+        'maxFileSize'      => 300 * 1024/* * 1024*/,
         'throwExceptions'  => false,
     ]);
 
@@ -205,7 +205,15 @@ function handleUpload(): void
                     return 'Файл слишком маленький (минимум 300KB)';
                 }
                 return true;
-            });
+            })->addValidator(function(array $file): bool|string {
+                // Проверка типа файла
+                $mimeType = mime_content_type($file['tmp_name']);
+                if (str_starts_with($mimeType, 'image/')) {
+                    return 'Файл является изображением';
+                }
+                return true;
+            })
+        ;
 
     } catch (\Throwable $e) {
         echo json_encode(['error' => 'Не удалось создать FileUpload: ' . $e->getMessage(), 'trace' => $e->getTraceAsString()]);
