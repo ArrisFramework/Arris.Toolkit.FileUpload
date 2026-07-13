@@ -52,6 +52,7 @@ class FileUpload
      */
     private int $targetImageQuality = 90;
 
+    private bool $forceConversion = false;
 
     /**
      * @param array|null $file Массив файла из $_FILES или null
@@ -458,9 +459,9 @@ class FileUpload
             $fullPath = $this->targetPath . $savedFilename;
 
             $needsConversion = $this->targetMimeType !== null &&
-                $this->targetMimeType !== $sourceMimeType &&
                 str_starts_with($sourceMimeType, 'image/') &&
-                str_starts_with($this->targetMimeType, 'image/');
+                str_starts_with($this->targetMimeType, 'image/') &&
+                ($this->forceConversion || $this->targetMimeType !== $sourceMimeType);
 
             if ($needsConversion) {
                 $targetPath = $this->targetPath . $this->changeExtension($savedFilename, $this->targetMimeType);
@@ -585,12 +586,14 @@ class FileUpload
      *
      * @param string $mimeType
      * @param int $compression_quality
+     * @param bool $force Принудительная конвертация даже при совпадении MIME-типов
      * @return $this
      */
-    public function setTargetMimeType(string $mimeType, int $compression_quality = 90): self
+    public function setTargetMimeType(string $mimeType, int $compression_quality = 90, bool $force = false): self
     {
         $this->targetMimeType = $mimeType;
         $this->targetImageQuality = max(0, min($compression_quality, 100));
+        $this->forceConversion = $force;
         return $this;
     }
 

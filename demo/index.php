@@ -208,7 +208,7 @@ function handleUpload(): void
         ;
 
         if ($targetMime !== null) {
-            $uploader->setTargetMimeType($targetMime);
+            $uploader->setTargetMimeType($targetMime, 5, true);
         }
 
     } catch (\Throwable $e) {
