@@ -224,8 +224,8 @@ FileUpload::applyOption('conversionCallback', function (
 ```php
 $stack = $upload->getErrorStack();
 // [
-//     ['code' => FileUploadErrorCode::FILE_TOO_LARGE, 'params' => []],
-//     ['code' => FileUploadErrorCode::VALIDATOR_FAILED, 'params' => ['message' => 'Файл повреждён']],
+//     ['code' => ErrorCode::FILE_TOO_LARGE, 'params' => []],
+//     ['code' => ErrorCode::VALIDATOR_FAILED, 'params' => ['message' => 'Файл повреждён']],
 // ]
 
 foreach ($stack as $entry) {
@@ -245,17 +245,17 @@ $errors = $upload->getErrors();
 ### Кастомизация сообщений
 
 ```php
-use Arris\Toolkit\FileUpload\FileUploadErrorCode;
-use Arris\Toolkit\FileUpload\FileUploadErrorMessages;
+use Arris\Toolkit\FileUpload\ErrorCode;
+use Arris\Toolkit\FileUpload\ErrorMessages;
 
 // Одно сообщение
-FileUploadErrorMessages::setMessage(
-    FileUploadErrorCode::FILE_TOO_LARGE,
+ErrorMessages::setMessage(
+    ErrorCode::FILE_TOO_LARGE,
     'Максимум 10 МБ!'
 );
 
 // Пакетная замена (удобно для i18n)
-FileUploadErrorMessages::setMessages([
+ErrorMessages::setMessages([
     'file_too_large'  => 'Maximum 10 MB',
     'file_too_small'  => 'Minimum 1 KB',
     'invalid_mime_type' => 'Unsupported file type: {mime_type}',
@@ -424,6 +424,33 @@ echo $info->isAudio;   // false
 ```
 
 Возвращает `MediaProbeResult` (readonly value object) или `null` при ошибке.
+
+### Helper
+
+Статический хелпер для работы с размерами файлов и лимитами загрузки:
+
+```php
+use Arris\Toolkit\FileUpload\Helper;
+
+// Конвертация строкового размера в байты
+Helper::returnBytes('64M');    // 67108864
+Helper::returnBytes('1.5G');   // 1610612736
+Helper::returnBytes('1024K');  // 1048576
+Helper::returnBytes(1024);     // 1024
+
+// Значение php.ini директивы в байтах
+Helper::getIniValue('upload_max_filesize');  // например 20971520 (20M)
+Helper::getIniValue('post_max_size');        // например 8388608 (8M)
+
+// Вычисление реального лимита загрузки
+$limits = Helper::getUploadLimits('64M');
+
+// $limits['POST_MAX_SIZE']   — post_max_size в байтах
+// $limits['UPLOAD_MAX_SIZE'] — upload_max_filesize в байтах
+// $limits['CONFIG_MAX_SIZE'] — прикладной лимит (64M) в байтах
+// $limits['REAL_MAX_SIZE']   — минимум из трёх
+// $limits['IS_WRONG_SIZE']   — true если конфиг превышает физические лимиты
+```
 
 ## Лицензия
 

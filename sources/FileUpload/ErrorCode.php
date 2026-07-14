@@ -2,7 +2,7 @@
 
 namespace Arris\Toolkit\FileUpload;
 
-enum FileUploadErrorCode: string
+enum ErrorCode: string
 {
     // Файл не передан / не существует
     case FILE_NOT_SET = 'file_not_set';

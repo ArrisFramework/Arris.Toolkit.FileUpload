@@ -3,7 +3,7 @@
 namespace Arris\Toolkit\FileUpload;
 
 /**
- * Транслятор кодов ошибок FileUploadErrorCode в человекочитаемые строки.
+ * Транслятор кодов ошибок ErrorCode в человекочитаемые строки.
  *
  * Поддерживает i18n:
  *  - ключ `_` — дефолтная локаль (русская)
@@ -12,7 +12,7 @@ namespace Arris\Toolkit\FileUpload;
  *
  * Параметры в сообщениях: {mime_type}, {message} — подставляются из массива $params.
  */
-class FileUploadErrorMessages
+class ErrorMessages
 {
     private const MESSAGES = [
         '_' => [
@@ -106,7 +106,7 @@ class FileUploadErrorMessages
      * 3. Сообщение для дефолтной локали (_)
      * 4. value кода ошибки
      */
-    public static function resolve(FileUploadErrorCode $code, array $params = []): string
+    public static function resolve(ErrorCode $code, array $params = []): string
     {
         $key = $code->value;
 
@@ -137,7 +137,7 @@ class FileUploadErrorMessages
     /**
      * Заменяет сообщение для одного кода (для текущей локали).
      */
-    public static function setMessage(FileUploadErrorCode $code, string $message): void
+    public static function setMessage(ErrorCode $code, string $message): void
     {
         self::$overrides[$code->value] = $message;
     }
@@ -145,7 +145,7 @@ class FileUploadErrorMessages
     /**
      * Пакетная замена / дополнение сообщений.
      *
-     * @param array<string, string> $messages ключ — FileUploadErrorCode->value, значение — шаблон
+     * @param array<string, string> $messages ключ — ErrorCode->value, значение — шаблон
      */
     public static function setMessages(array $messages): void
     {

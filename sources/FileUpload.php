@@ -2,8 +2,8 @@
 
 namespace Arris\Toolkit;
 
-use Arris\Toolkit\FileUpload\FileUploadErrorCode;
-use Arris\Toolkit\FileUpload\FileUploadErrorMessages;
+use Arris\Toolkit\FileUpload\ErrorCode;
+use Arris\Toolkit\FileUpload\ErrorMessages;
 use Arris\Toolkit\FileUpload\ImageConvertor;
 use InvalidArgumentException;
 
@@ -199,7 +199,7 @@ class FileUpload
     /**
      * Добавляет ошибку в стек (хранение по кодам).
      */
-    private function pushError(FileUploadErrorCode $code, array $params = []): void
+    private function pushError(ErrorCode $code, array $params = []): void
     {
         $this->errorStack[] = ['code' => $code, 'params' => $params];
     }
@@ -209,28 +209,28 @@ class FileUpload
      */
     private function resolveErrors(): array
     {
-        FileUploadErrorMessages::setLocale($this->locale);
+        ErrorMessages::setLocale($this->locale);
 
         return array_map(
-            fn(array $entry) => FileUploadErrorMessages::resolve($entry['code'], $entry['params'] ?? []),
+            fn(array $entry) => ErrorMessages::resolve($entry['code'], $entry['params'] ?? []),
             $this->errorStack
         );
     }
 
     /**
-     * Маппит PHP UPLOAD_ERR_* код в FileUploadErrorCode.
+     * Маппит PHP UPLOAD_ERR_* код в ErrorCode.
      */
-    private static function mapUploadErrorCode(int $errorCode): FileUploadErrorCode
+    private static function mapUploadErrorCode(int $errorCode): ErrorCode
     {
         return match($errorCode) {
-            UPLOAD_ERR_INI_SIZE  => FileUploadErrorCode::UPLOAD_ERR_INI_SIZE,
-            UPLOAD_ERR_FORM_SIZE => FileUploadErrorCode::UPLOAD_ERR_FORM_SIZE,
-            UPLOAD_ERR_PARTIAL   => FileUploadErrorCode::UPLOAD_ERR_PARTIAL,
-            UPLOAD_ERR_NO_FILE   => FileUploadErrorCode::UPLOAD_ERR_NO_FILE,
-            UPLOAD_ERR_NO_TMP_DIR => FileUploadErrorCode::UPLOAD_ERR_NO_TMP_DIR,
-            UPLOAD_ERR_CANT_WRITE => FileUploadErrorCode::UPLOAD_ERR_CANT_WRITE,
-            UPLOAD_ERR_EXTENSION => FileUploadErrorCode::UPLOAD_ERR_EXTENSION,
-            default              => FileUploadErrorCode::NOT_UPLOADED,
+            UPLOAD_ERR_INI_SIZE  => ErrorCode::UPLOAD_ERR_INI_SIZE,
+            UPLOAD_ERR_FORM_SIZE => ErrorCode::UPLOAD_ERR_FORM_SIZE,
+            UPLOAD_ERR_PARTIAL   => ErrorCode::UPLOAD_ERR_PARTIAL,
+            UPLOAD_ERR_NO_FILE   => ErrorCode::UPLOAD_ERR_NO_FILE,
+            UPLOAD_ERR_NO_TMP_DIR => ErrorCode::UPLOAD_ERR_NO_TMP_DIR,
+            UPLOAD_ERR_CANT_WRITE => ErrorCode::UPLOAD_ERR_CANT_WRITE,
+            UPLOAD_ERR_EXTENSION => ErrorCode::UPLOAD_ERR_EXTENSION,
+            default              => ErrorCode::NOT_UPLOADED,
         };
     }
 
@@ -255,7 +255,7 @@ class FileUpload
         $this->errorStack = [];
 
         if (empty($this->file)) {
-            $this->pushError(FileUploadErrorCode::FILE_NOT_SET);
+            $this->pushError(ErrorCode::FILE_NOT_SET);
             $resolved = $this->resolveErrors();
             return new FileUploadResult(
                 isSuccess: false,
@@ -265,7 +265,7 @@ class FileUpload
         }
 
         if (!isset($this->file['tmp_name']) || !is_uploaded_file($this->file['tmp_name'])) {
-            $this->pushError(FileUploadErrorCode::NOT_UPLOADED);
+            $this->pushError(ErrorCode::NOT_UPLOADED);
             $resolved = $this->resolveErrors();
             return new FileUploadResult(
                 isSuccess: false,
@@ -379,12 +379,12 @@ class FileUpload
         // ── Прекондишины: fail-fast (нет файла → нечего проверять) ──
 
         if (empty($this->file)) {
-            $this->pushError(FileUploadErrorCode::FILE_NOT_SET);
+            $this->pushError(ErrorCode::FILE_NOT_SET);
             return false;
         }
 
         if (!isset($this->file['tmp_name']) || !is_uploaded_file($this->file['tmp_name'])) {
-            $this->pushError(FileUploadErrorCode::NOT_UPLOADED);
+            $this->pushError(ErrorCode::NOT_UPLOADED);
             return false;
         }
 
@@ -401,19 +401,19 @@ class FileUpload
         if (!empty($this->allowedMimeTypes)) {
             $mimeType = mime_content_type($this->file['tmp_name']);
             if (!in_array($mimeType, $this->allowedMimeTypes, true)) {
-                $this->pushError(FileUploadErrorCode::INVALID_MIME_TYPE, ['mime_type' => $mimeType]);
+                $this->pushError(ErrorCode::INVALID_MIME_TYPE, ['mime_type' => $mimeType]);
                 $valid = false;
             }
         }
 
         $fileSize = $this->file['size'] ?? 0;
         if ($this->minFileSize !== null && $fileSize < $this->minFileSize) {
-            $this->pushError(FileUploadErrorCode::FILE_TOO_SMALL);
+            $this->pushError(ErrorCode::FILE_TOO_SMALL);
             $valid = false;
         }
 
         if ($this->maxFileSize !== null && $fileSize > $this->maxFileSize) {
-            $this->pushError(FileUploadErrorCode::FILE_TOO_LARGE);
+            $this->pushError(ErrorCode::FILE_TOO_LARGE);
             $valid = false;
         }
 
@@ -423,7 +423,7 @@ class FileUpload
                 $params = is_string($result)
                     ? ['message' => $result]
                     : ['message' => 'Ошибка валидации файла'];
-                $this->pushError(FileUploadErrorCode::VALIDATOR_FAILED, $params);
+                $this->pushError(ErrorCode::VALIDATOR_FAILED, $params);
                 $valid = false;
             }
         }
@@ -444,13 +444,13 @@ class FileUpload
             }
 
             if ($this->targetPath === null) {
-                $this->pushError(FileUploadErrorCode::TARGET_PATH_NOT_SET);
+                $this->pushError(ErrorCode::TARGET_PATH_NOT_SET);
                 return $this->createFailureResult();
             }
 
             if (!is_dir($this->targetPath)) {
                 if (!mkdir($this->targetPath, 0755, true)) {
-                    $this->pushError(FileUploadErrorCode::TARGET_DIR_CREATE_FAILED);
+                    $this->pushError(ErrorCode::TARGET_DIR_CREATE_FAILED);
                     return $this->createFailureResult();
                 }
             }
@@ -469,7 +469,7 @@ class FileUpload
                 $targetPath = $this->targetPath . $this->changeExtension($savedFilename, $this->targetMimeType);
 
                 if (!move_uploaded_file($this->file['tmp_name'], $targetPath . '.tmp')) {
-                    $this->pushError(FileUploadErrorCode::FILE_MOVE_FAILED);
+                    $this->pushError(ErrorCode::FILE_MOVE_FAILED);
                     return $this->createFailureResult();
                 }
 
@@ -485,7 +485,7 @@ class FileUpload
                 @unlink($targetPath . '.tmp');
 
                 if (!$success) {
-                    $this->pushError(FileUploadErrorCode::CONVERSION_FAILED);
+                    $this->pushError(ErrorCode::CONVERSION_FAILED);
                     return $this->createFailureResult();
                 }
 
@@ -496,7 +496,7 @@ class FileUpload
                 // Обычное перемещение без конвертации
                 $finalPath = $this->targetPath . $savedFilename;
                 if (!move_uploaded_file($this->file['tmp_name'], $finalPath)) {
-                    $this->pushError(FileUploadErrorCode::FILE_MOVE_FAILED);
+                    $this->pushError(ErrorCode::FILE_MOVE_FAILED);
                     return $this->createFailureResult();
                 }
                 $finalMimeType = $sourceMimeType;
@@ -525,10 +525,10 @@ class FileUpload
             );
 
         } catch (\Throwable $e) {
-            $this->pushError(FileUploadErrorCode::EXCEPTION, ['message' => $e->getMessage()]);
+            $this->pushError(ErrorCode::EXCEPTION, ['message' => $e->getMessage()]);
             if ($this->throwExceptions) {
                 throw new FileUploadException(
-                    FileUploadErrorMessages::resolve(FileUploadErrorCode::EXCEPTION, ['message' => $e->getMessage()]),
+                    ErrorMessages::resolve(ErrorCode::EXCEPTION, ['message' => $e->getMessage()]),
                     $this->resolveErrors(),
                     0,
                     $e
@@ -551,7 +551,7 @@ class FileUpload
     /**
      * Возвращает сырой стек ошибок (коды + параметры).
      *
-     * @return array<array{code: FileUploadErrorCode, params: array}>
+     * @return array<array{code: ErrorCode, params: array}>
      */
     public function getErrorStack(): array
     {
