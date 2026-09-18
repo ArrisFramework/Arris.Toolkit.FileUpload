@@ -80,8 +80,8 @@ FileUpload::setDefaultConfig([
     'allowedMimeTypes'  => ['image/jpeg', 'image/png', 'image/webp'],
     'maxFileSize'       => 10 * 1024 * 1024,
     'minFileSize'       => 1024,
-    'filenameGenerator' => function (string $originalName, array $file) {
-        $ext = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+    'filenameGenerator' => function (FileUploadResult $source) {
+        $ext = strtolower(pathinfo($source->originalName ?? '', PATHINFO_EXTENSION));
         return date('Y_m_d_') . uniqid(more_entropy: true) . ".{$ext}";
     },
     'throwExceptions'   => false,
@@ -108,8 +108,92 @@ $upload = FileUpload::fromFile($_FILES['photo'], 0)
     ->setMinFileSize(1024)
     ->setTargetMimeType('image/webp', 85)
     ->setLocale('en')
-    ->setFilenameGenerator(fn($name) => uniqid() . '.' . pathinfo($name, PATHINFO_EXTENSION));
+    ->setFilenameGenerator(fn(FileUploadResult $source) => uniqid() . '.' . pathinfo($source->originalName ?? '', PATHINFO_EXTENSION));
 ```
+
+### Генератор имени файла (`filenameGenerator`)
+
+Генератор решает, какое имя (без пути) получит сохраняемый файл внутри `targetPath`.
+Устанавливается тремя способами: в `setDefaultConfig(...)`, через
+`applyOption('filenameGenerator', ...)` или fluent `setFilenameGenerator(callable)`.
+
+Текущая сигнатура (breaking change от 2026-09-18): генератор принимает **один
+аргумент** — `FileUploadResult` стадии `uploaded` (дескриптор исходного файла)
+и возвращает строку — имя файла с расширением:
+
+```php
+function (FileUploadResult $source): string
+```
+
+#### Что доступно внутри генератора
+
+Все метаданные уже вычислены библиотекой на стадии `uploaded()`, генератору не
+нужно читать файл повторно:
+
+| Поле | Что это | Типичное применение |
+|------|---------|---------------------|
+| `$source->mimeType` | Реальный MIME по содержимому файла (`mime_content_type(tmp_name)`), а не `$_FILES[*]['type']` — тот приходит от браузера и ему доверять нельзя | Расширение по содержимому |
+| `$source->tmpName` | Временный путь загруженного файла (`$_FILES[*]['tmp_name']`) | Анализ, копирование |
+| `$source->relativePath` | Путь, как его прислал клиент (`$_FILES[*]['full_path']`); для одиночной загрузки совпадает с `originalName` | Расширение из клиентского пути, сохранение подкаталогов |
+| `$source->originalName` | Исходное имя файла на клиенте | Фолбэк для расширения/радикса |
+| `$source->width` / `$source->height` | Геометрия изображения (только image/*) | Суффикс размера |
+| `$source->size` | Размер в байтах | Суффикс размера |
+
+#### Типовой сценарий: расширение по реальному содержимому
+
+Классическая ошибка — брать расширение из `originalName`: пользователь может
+загрузить `.jpg` под именем `.png`, и файл сохранится с неверным расширением
+(файл на диске ↔ запись в БД разойдутся). Правильно — определять расширение по
+реальному MIME с фолбэком на имя, если формат не распознан:
+
+```php
+$filenameGenerator = function (FileUploadResult $source) {
+    $extension = match ($source->mimeType) {
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+        'image/webp' => 'webp',
+        'image/heic' => 'heic',
+        'video/mp4'  => 'mp4',
+        'video/webm' => 'webm',
+        default      => '',
+    };
+
+    // MIME не распознан — берём расширение из клиентского пути/имени
+    if ($extension === '') {
+        $extension = strtolower((string) pathinfo(
+            $source->relativePath ?: $source->originalName ?: '',
+            PATHINFO_EXTENSION
+        ));
+    }
+
+    if ($extension === 'jpeg') {
+        $extension = 'jpg';
+    }
+
+    return date('Y_m_d_') . uniqid(more_entropy: true) . ($extension ? ".{$extension}" : '');
+};
+```
+
+#### Порядок вызова внутри `process()`
+
+1. `ensureUploadedResult()` готовит дескриптор: берёт уже кэшированный результат
+   `uploaded()`; если вызывался только `validate()` — собирает дескриптор из
+   провалидированного файла; иначе — запускает `uploaded()`.
+2. Генератор вызывается **до** `move_uploaded_file()` и до конверсии.
+3. Если генератор не установлен — дефолт: исходное имя, а при коллизии имени в
+   `targetPath` — `name_1.ext`, `name_2.ext`, ...
+
+#### Примечания
+
+- Генератор возвращает **только имя файла**, без `targetPath`.
+- При заданной конверсии (`targetMimeType`) библиотека сама подменит расширение
+  через `changeExtension()` (например `image/jpeg` → `.jpg`) — возвращать итоговое
+  расширение целевого формата в генераторе не требуется.
+- Возвращённое значение не проходит санитизацию: для безопасного имени (без `/`,
+  `..`, спецсимволов) нормализуйте его внутри генератора.
+- MIME-детект выполняется один раз на экземпляр и кэшируется (`detectMimeType()`);
+  повторные `mime_content_type()` в генераторе избыточны — используйте готовый
+  `$source->mimeType`.
 
 ## Валидация
 
@@ -356,6 +440,8 @@ foreach ($photoKeys as $photoId) {
 | `extension` | `string\|null` | Расширение без точки |
 | `width` | `int\|null` | Ширина (image/*) |
 | `height` | `int\|null` | Высота (image/*) |
+| `tmpName` | `string\|null` | Временный путь (`tmp_name`) исходного файла; заполнен на стадии `uploaded` |
+| `relativePath` | `string\|null` | Путь, как его передал клиент (`$_FILES[*]['full_path']`); для обычной загрузки = `originalName` |
 
 ```php
 // Сериализация
@@ -373,7 +459,7 @@ $result->toArray();     // PHP массив
 | `allowedMimeTypes` | `array` | Разрешённые MIME-типы |
 | `maxFileSize` | `int` | Максимальный размер (байты) |
 | `minFileSize` | `int` | Минимальный размер (байты) |
-| `filenameGenerator` | `callable` | Генератор имени файла `fn(string $name, array $file): string` |
+| `filenameGenerator` | `callable` | Генератор имени файла `fn(FileUploadResult $source): string` |
 | `throwExceptions` | `bool` | Бросать `FileUploadException` вместо возврата ошибки |
 | `validators` | `array` | Массив callable-валидаторов |
 | `targetMimeType` | `string` | Целевой MIME-тип для конверсии |

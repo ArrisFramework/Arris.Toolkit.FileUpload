@@ -17,6 +17,8 @@ namespace Arris\Toolkit;
  * @property-read string|null $extension     Расширение файла без точки
  * @property-read int|null    $width         Ширина файла (для image/*)
  * @property-read int|null    $height        Высота файла (для image/*)
+ * @property-read string|null $tmpName       Временный путь (tmp_name) исходного файла; доступен на стадии uploaded
+ * @property-read string|null $relativePath  Путь, как его передал клиент ($_FILES[*]['full_path']); для обычной загрузки = originalName
  */
 class FileUploadResult
 {
@@ -38,6 +40,8 @@ class FileUploadResult
      * @param string|null   $extension      - расширение файла без точки
      * @param int|null      $width          - ширина файла (для image/*)
      * @param int|null      $height         - высота файла (для image/*)
+     * @param string|null   $tmpName        - временный путь (tmp_name) исходного файла
+     * @param string|null   $relativePath   - путь, как его передал клиент (full_path)
      */
     public function __construct(
         public readonly bool $isSuccess,
@@ -53,7 +57,9 @@ class FileUploadResult
         public readonly ?string $radix = null,
         public readonly ?string $extension = null,
         public readonly ?int $width = null,
-        public readonly ?int $height = null
+        public readonly ?int $height = null,
+        public readonly ?string $tmpName = null,
+        public readonly ?string $relativePath = null
     ) {}
 
     public function toJson(bool $pretty = false): string
@@ -72,7 +78,9 @@ class FileUploadResult
             'radix' => $this->radix,
             'extension' => $this->extension,
             'width' => $this->width,
-            'height' => $this->height
+            'height' => $this->height,
+            'tmpName' => $this->tmpName,
+            'relativePath' => $this->relativePath
         ];
 
         $flags = JSON_UNESCAPED_UNICODE;
@@ -99,7 +107,9 @@ class FileUploadResult
             'radix' => $this->radix,
             'extension' => $this->extension,
             'width' => $this->width,
-            'height' => $this->height
+            'height' => $this->height,
+            'tmpName' => $this->tmpName,
+            'relativePath' => $this->relativePath
         ];
     }
 

@@ -31,6 +31,18 @@ class FileUpload
     private ?int $fileIndex = null;
     private bool $validated = false;
 
+    /**
+     * Кэш результата uploaded(): используется в process() как дескриптор
+     * исходного файла для генератора имени и как источник метаданных.
+     */
+    private ?FileUploadResult $uploadedResult = null;
+
+    /**
+     * Ленивый кэш mime_content_type(): убирает повторный детект
+     * в validate(), uploaded() и ensureUploadedResult().
+     */
+    private ?string $detectedMimeType = null;
+
     // Поля для конфигурации по умолчанию
     private static array $defaultConfig = [];
 
@@ -253,6 +265,7 @@ class FileUpload
     public function uploaded(): FileUploadResult
     {
         $this->errorStack = [];
+        $this->uploadedResult = null;
 
         if (empty($this->file)) {
             $this->pushError(ErrorCode::FILE_NOT_SET);
@@ -303,17 +316,19 @@ class FileUpload
 
         $this->validated = true;
 
-        $mimeType = mime_content_type($this->file['tmp_name']);
-        [$width, $height] = $this->getImageDimensions($this->file['tmp_name'], $mimeType);
+        $mimeType = $this->detectMimeType();
+        [$width, $height] = $this->getImageDimensions($this->file['tmp_name'], (string)$mimeType);
 
-        return new FileUploadResult(
+        return $this->uploadedResult = new FileUploadResult(
             isSuccess: true,
             stage: FileUploadResult::STAGE_UPLOADED,
             originalName: $this->file['name'] ?? null,
             mimeType: $mimeType,
             size: $this->file['size'] ?? null,
             width: $width,
-            height: $height
+            height: $height,
+            tmpName: $this->file['tmp_name'] ?? null,
+            relativePath: $this->file['full_path'] ?? ($this->file['name'] ?? null)
         );
     }
 
@@ -352,6 +367,14 @@ class FileUpload
         return $this;
     }
 
+    /**
+     * Устанавливает генератор имени сохраняемого файла.
+     *
+     * Callable получает один аргумент — FileUploadResult стадии uploaded
+     * (дескриптор исходного файла), и возвращает имя файла (без пути).
+     *
+     * @param callable(FileUploadResult): string $generator
+     */
     public function setFilenameGenerator(callable $generator): self
     {
         $this->filenameGenerator = $generator;
@@ -399,7 +422,7 @@ class FileUpload
         // ── Встроенные валидаторы: collect-all ──
 
         if (!empty($this->allowedMimeTypes)) {
-            $mimeType = mime_content_type($this->file['tmp_name']);
+            $mimeType = $this->detectMimeType();
             if (!in_array($mimeType, $this->allowedMimeTypes, true)) {
                 $this->pushError(ErrorCode::INVALID_MIME_TYPE, ['mime_type' => $mimeType]);
                 $valid = false;
@@ -439,7 +462,9 @@ class FileUpload
     public function process(): FileUploadResult
     {
         try {
-            if (!$this->validated && !$this->validate()) {
+            $source = $this->ensureUploadedResult();
+
+            if (!$source->isSuccess) {
                 return $this->createFailureResult();
             }
 
@@ -455,8 +480,8 @@ class FileUpload
                 }
             }
 
-            $sourceMimeType = mime_content_type($this->file['tmp_name']);
-            $savedFilename = $this->generateFilename($this->file['name']);
+            $sourceMimeType = $source->mimeType ?? mime_content_type($this->file['tmp_name']);
+            $savedFilename = $this->generateFilename($source);
 
             $fullPath = $this->targetPath . $savedFilename;
 
@@ -506,7 +531,12 @@ class FileUpload
             $radix = $fileInfo['filename'];
             $extension = $fileInfo['extension'] ?? null;
 
-            [$width, $height] = $this->getImageDimensions($finalPath, $finalMimeType);
+            if ($needsConversion) {
+                [$width, $height] = $this->getImageDimensions($finalPath, $finalMimeType);
+            } else {
+                $width = $source->width;
+                $height = $source->height;
+            }
 
             return new FileUploadResult(
                 isSuccess: true,
@@ -578,6 +608,8 @@ class FileUpload
         $newInstance->fileIndex = $index;
         $newInstance->errorStack = [];
         $newInstance->validated = false;
+        $newInstance->uploadedResult = null;
+        $newInstance->detectedMimeType = null;
         return $newInstance;
     }
 
@@ -619,10 +651,65 @@ class FileUpload
         );
     }
 
-    private function generateFilename(string $originalName): string
+    /**
+     * Возвращает дескриптор исходного файла (FileUploadResult стадии uploaded).
+     *
+     * Если uploaded() не вызывался — выполняет полный цикл валидации
+     * (uploaded()), либо, если файл уже провалидирован (validate()),
+     * собирает дескриптор минуя повторные проверки. Результат кэшируется
+     * и переиспользуется внутри process().
+     */
+    private function ensureUploadedResult(): FileUploadResult
     {
+        if ($this->uploadedResult !== null) {
+            return $this->uploadedResult;
+        }
+
+        if ($this->validated) {
+            $mimeType = $this->detectMimeType();
+            [$width, $height] = $this->getImageDimensions($this->file['tmp_name'], (string)$mimeType);
+
+            return $this->uploadedResult = new FileUploadResult(
+                isSuccess: true,
+                stage: FileUploadResult::STAGE_UPLOADED,
+                originalName: $this->file['name'] ?? null,
+                mimeType: $mimeType,
+                size: $this->file['size'] ?? null,
+                width: $width,
+                height: $height,
+                tmpName: $this->file['tmp_name'] ?? null,
+                relativePath: $this->file['full_path'] ?? ($this->file['name'] ?? null)
+            );
+        }
+
+        return $this->uploadedResult = $this->uploaded();
+    }
+
+    /**
+     * Ленивый детект MIME-типа временного файла через mime_content_type(),
+     * с кэшем на время жизни инстанса.
+     */
+    private function detectMimeType(): ?string
+    {
+        if ($this->detectedMimeType !== null) {
+            return $this->detectedMimeType;
+        }
+
+        if (empty($this->file['tmp_name'])) {
+            return null;
+        }
+
+        $detected = mime_content_type($this->file['tmp_name']);
+
+        return $this->detectedMimeType = $detected ?: null;
+    }
+
+    private function generateFilename(FileUploadResult $source): string
+    {
+        $originalName = $source->originalName ?? '';
+
         if ($this->filenameGenerator !== null) {
-            return ($this->filenameGenerator)($originalName, $this->file);
+            return ($this->filenameGenerator)($source);
         }
 
         $targetFile = $this->targetPath . $originalName;

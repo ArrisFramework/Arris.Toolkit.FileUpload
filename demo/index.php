@@ -231,14 +231,23 @@ function handleUpload(): void
         return;
     }
 
-    $uploader->setFilenameGenerator(function (string $originalName, array $file) {
-        // $extension = MimeTypes::fromFile($originalName);
-        $info = pathinfo($originalName);
-        $extension = $info['extension'] ?? '';
-        if ($extension == 'jpeg') {
+    $uploader->setFilenameGenerator(function (FileUploadResult $source) {
+        // Расширение по реальному MIME-типу (из tmp_name), а не по имени файла
+        $extension = match ($source->mimeType) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/heic' => 'heic',
+            'video/mp4' => 'mp4',
+            'video/webm' => 'webm',
+            default => ''
+        };
+        if ($extension === '') {
+            $extension = strtolower((string)pathinfo($source->relativePath ?: $source->originalName ?: '', PATHINFO_EXTENSION));
+        }
+        if ($extension === 'jpeg') {
             $extension = 'jpg';
         }
-        $extension = strtolower($extension);
         $uuid = uniqid(more_entropy: true);
         $dt = date("Y_m_d_");
         return $dt . '_' . $uuid . ($extension ? '.' . $extension : '');
