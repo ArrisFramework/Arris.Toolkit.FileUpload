@@ -174,6 +174,32 @@ $filenameGenerator = function (FileUploadResult $source) {
 };
 ```
 
+Хорошо показал себя следующий генератор:
+
+```php
+$filenameGenerator = function (FileUploadResult $source) {
+    // Вычисляем расширение на основе реального MIME-типа
+    $extension
+        = !is_null($source->mimeType)
+        ? MimeTypes::fromType($source->mimeType)
+        : strtolower((string)pathinfo($source->relativePath ?: $source->originalName ?: '', PATHINFO_EXTENSION));
+
+    // нормализуем расширение
+    if ($extension === 'jpeg') {
+        $extension = 'jpg';
+    }
+
+    // генерируем вполне вероятно уникальное имя
+    $uuid = uniqid(more_entropy: true);
+    $dt = date("Y_m_d"); // на базе даты
+    
+    // возвращаем что-то в духе: 2026_09_18__6aad4aba67f2a6.43778436.jpg
+    return $dt . '__' . $uuid . ($extension ? '.' . $extension : '');
+}
+
+```
+
+
 #### Порядок вызова внутри `process()`
 
 1. `ensureUploadedResult()` готовит дескриптор: берёт уже кэшированный результат
